@@ -1,0 +1,25 @@
+front	back
+What is the main focus of *Competitive Programmer’s Handbook*?	Focuses on competitive programming techniques and problem-solving strategies.
+Who wrote the *Competitive Programmer’s Handbook*?	Written by Antti Laaksonen.
+When was the draft version published?	Draft published on July 3, 2018.
+What is the purpose of flashcards in this document?	They are likely study tools for learning.
+"What does ""Contents"" indicate in the document?"	It lists main topics or sections covered.
+What is the term for the introductory section before Contents?	"""Preface"" (introduces the document)."
+What topic is **6.1 Coin problem** under?	Greedy algorithms
+What is **7.2** about?	Longest increasing subsequence (Dynamic programming)
+What are the key methods in **8.1**?	Two pointers method (Amortized analysis)
+What is the first algorithm in shortest paths?	Bellman–Ford algorithm
+What is the topic of section 14?	Tree algorithms
+What does section 17 focus on?	Strong connectivity algorithms
+What is the definition of a **perpendicular line**?	Two lines intersecting at 90° angles.
+What is the **slope** of a vertical line?	Undefined (infinite).
+What is the **midpoint** formula?	((x₁ + x₂)/2, (y₁ + y₂)/2).
+What is the book’s main purpose?	Introduces competitive programming basics; assumes prior programming knowledge but no CP experience.
+Who is the book intended for?	Students aiming for IOI/ICPC, general CP enthusiasts, and algorithm learners.
+How long does it take to become a good CP programmer?	Continuous practice; emphasizes learning through reading, solving, and contests.
+What is competitive programming about?	Combining algorithm design and implementation.
+Why is algorithm efficiency important in competitive programming?	Correct and efficient algorithms solve problems optimally.
+What skills are needed for algorithm implementation?	Good programming skills and correct implementation for testing.
+What is the fastest way to read a whole line with spaces?	Use `getline(cin, s);`.
+Why is `endl` slower than `\n`?	`endl` flushes the output buffer; `\n` does not.
+What is the purpose of `ios::sync_with_stdio(0)`?	Speeds up `cin`/`cout` by disabling C++/C sync.

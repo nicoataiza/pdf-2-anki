@@ -1,5 +1,6 @@
 import base64
 from dataclasses import dataclass
+from pathlib import Path
 
 import fitz
 import ollama
@@ -11,34 +12,46 @@ class PageContent:
     text: str
 
 
-def extract_text_from_pdf(pdf_path: str, max_pages: int | None = None) -> list[PageContent]:
+def extract_text_from_pdf(
+    pdf_path: str, max_pages: int | None = None
+) -> list[PageContent]:
+    if not Path(pdf_path).exists():
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
     client = ollama.Client(host="http://192.168.1.132:11435")
 
     results = []
     doc = fitz.open(pdf_path)
-    total_pages = max_pages if max_pages else len(doc)
-    total_pages = min(total_pages, len(doc))
+    total_pages = min(max_pages if max_pages else len(doc), len(doc))
 
-    for page_num in range(total_pages):
-        page = doc[page_num]
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+    try:
+        for page_num in range(total_pages):
+            page = doc[page_num]
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
 
-        img_bytes = pix.tobytes("png")
-        img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+            try:
+                img_bytes = pix.tobytes("png")
+                img_b64 = base64.b64encode(img_bytes).decode("utf-8")
 
-        response = client.chat(
-            model="ministral-3b-instruct-64k:latest",
-            messages=[{
-                "role": "user",
-                "content": "Extract all text from this image. Preserve the structure and formatting as much as possible.",
-                "images": [img_b64],
-            }],
-        )
+                response = client.generate(
+                    model="ministral-3b-instruct-64k:latest",
+                    prompt="Extract all text from this image. Preserve the structure and formatting as much as possible.",
+                    images=[img_b64],
+                    options={"num_ctx": 32768},
+                )
 
-        results.append(PageContent(
-            page_number=page_num + 1,
-            text=response["message"]["content"],
-        ))
+                results.append(
+                    PageContent(
+                        page_number=page_num + 1,
+                        text=response["response"],
+                    )
+                )
+            finally:
+                pix = None
+                img_bytes = None
+                img_b64 = None
+    finally:
+        doc.close()
 
     return results
 

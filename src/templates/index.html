@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to Anki</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        /* Upload Section */
+        .upload-section {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.3s, background 0.3s;
+        }
+
+        .upload-area:hover {
+            border-color: #3498db;
+            background: #f8f9fa;
+        }
+
+        .upload-area.dragover {
+            border-color: #3498db;
+            background: #e8f4fc;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .upload-text {
+            color: #666;
+            margin-bottom: 15px;
+        }
+
+        .upload-input {
+            display: none;
+        }
+
+        .upload-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+
+        .upload-btn:hover {
+            background: #2980b9;
+        }
+
+        .upload-btn:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        .filename {
+            margin-top: 15px;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        /* Loading */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Flashcards Section */
+        .cards-section {
+            display: none;
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
+        .cards-section.visible {
+            display: block;
+        }
+
+        .cards-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .cards-header h2 {
+            color: #2c3e50;
+        }
+
+        .cards-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .btn-secondary {
+            background: #ecf0f1;
+            color: #2c3e50;
+        }
+
+        .btn-secondary:hover {
+            background: #bdc3c7;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #219a52;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .selected-count {
+            color: #666;
+            font-size: 14px;
+        }
+
+        /* Card Grid */
+        .cards-grid {
+            display: grid;
+            gap: 15px;
+            max-height: 500px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
+        .card-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            transition: border-color 0.3s;
+        }
+
+        .card-item:hover {
+            border-color: #ddd;
+        }
+
+        .card-checkbox {
+            margin-top: 5px;
+        }
+
+        .card-content {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .card-side {
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+        }
+
+        .card-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #999;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .card-text {
+            font-size: 14px;
+            color: #333;
+            word-break: break-word;
+        }
+
+        /* Export Section */
+        .export-section {
+            display: none;
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .export-section.visible {
+            display: block;
+        }
+
+        .export-section h2 {
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+
+        .export-options {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .export-option {
+            flex: 1;
+            min-width: 250px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .export-option h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .form-group select,
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .form-group select:focus,
+        .form-group input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        .deck-input {
+            display: none;
+        }
+
+        .deck-input.visible {
+            display: block;
+        }
+
+        .status-message {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .status-message.success {
+            display: block;
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-message.error {
+            display: block;
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        /* Alerts */
+        .alert {
+            padding: 12px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF to Anki</h1>
+        <p class="subtitle">Upload a PDF, generate flashcards, and export to Anki</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Upload Section -->
+        <div class="upload-section">
+            <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-icon">📄</div>
+                    <p class="upload-text">Drag & drop your PDF here or click to browse</p>
+                    <input type="file" name="file" id="file-input" class="upload-input" accept=".pdf">
+                    <button type="submit" class="upload-btn" id="upload-btn">Upload & Process</button>
+                </div>
+                <p class="filename" id="filename"></p>
+            </form>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Processing PDF... This may take a while.</p>
+            </div>
+        </div>
+
+        <!-- Cards Section -->
+        <div class="cards-section" id="cards-section">
+            <div class="cards-header">
+                <h2>Generated Flashcards</h2>
+                <div class="cards-actions">
+                    <span class="selected-count" id="selected-count">0 of 0 selected</span>
+                    <button class="btn btn-secondary" id="select-all">Select All</button>
+                    <button class="btn btn-secondary" id="deselect-all">Deselect All</button>
+                </div>
+            </div>
+            <div class="cards-grid" id="cards-grid"></div>
+        </div>
+
+        <!-- Export Section -->
+        <div class="export-section" id="export-section">
+            <h2>Export Options</h2>
+            <div class="export-options">
+                <div class="export-option">
+                    <h3>📥 Download CSV</h3>
+                    <p style="margin-bottom: 15px; color: #666;">Download selected cards as a CSV file for manual import to Anki.</p>
+                    <button class="btn btn-success" id="download-csv">Download CSV</button>
+                </div>
+                <div class="export-option">
+                    <h3>🔗 AnkiConnect</h3>
+                    <p style="margin-bottom: 15px; color: #666;">Add cards directly to Anki (requires Anki desktop with AnkiConnect plugin running).</p>
+                    <div class="form-group">
+                        <label for="deck-select">Select Deck</label>
+                        <select id="deck-select">
+                            <option value="">Loading decks...</option>
+                        </select>
+                    </div>
+                    <div class="form-group deck-input" id="new-deck-input">
+                        <label for="deck-name">New Deck Name</label>
+                        <input type="text" id="deck-name" placeholder="Enter deck name">
+                    </div>
+                    <button class="btn btn-primary" id="add-to-anki">Add to Anki</button>
+                    <div class="status-message" id="anki-status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+        const filenameDisplay = document.getElementById('filename');
+        const uploadForm = document.getElementById('upload-form');
+        const uploadBtn = document.getElementById('upload-btn');
+        const loading = document.getElementById('loading');
+        const cardsSection = document.getElementById('cards-section');
+        const exportSection = document.getElementById('export-section');
+        const cardsGrid = document.getElementById('cards-grid');
+        const selectedCount = document.getElementById('selected-count');
+        const deckSelect = document.getElementById('deck-select');
+        const newDeckInput = document.getElementById('new-deck-input');
+        const deckNameInput = document.getElementById('deck-name');
+        const ankiStatus = document.getElementById('anki-status');
+
+        let flashcards = [];
+        let selectedCards = new Set();
+
+        // File Upload
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                updateFilename();
+            }
+        });
+
+        fileInput.addEventListener('change', updateFilename);
+
+        function updateFilename() {
+            if (fileInput.files.length) {
+                filenameDisplay.textContent = fileInput.files[0].name;
+            }
+        }
+
+        uploadForm.addEventListener('submit', (e) => {
+            if (!fileInput.files.length) {
+                e.preventDefault();
+                alert('Please select a PDF file');
+                return;
+            }
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Processing...';
+            loading.style.display = 'block';
+            uploadArea.style.display = 'none';
+        });
+
+        // Load flashcards on page load
+        async function loadFlashcards() {
+            try {
+                const response = await fetch('/cards');
+                flashcards = await response.json();
+
+                if (flashcards.length > 0) {
+                    cardsSection.classList.add('visible');
+                    exportSection.classList.add('visible');
+                    renderCards();
+                    loadDecks();
+                }
+            } catch (e) {
+                console.error('Error loading flashcards:', e);
+            }
+        }
+
+        function renderCards() {
+            cardsGrid.innerHTML = '';
+            selectedCards.clear();
+
+            flashcards.forEach((card, index) => {
+                selectedCards.add(index);
+
+                const cardItem = document.createElement('div');
+                cardItem.className = 'card-item';
+                cardItem.innerHTML = `
+                    <input type="checkbox" class="card-checkbox" data-index="${index}" checked>
+                    <div class="card-content">
+                        <div class="card-side">
+                            <div class="card-label">Front</div>
+                            <div class="card-text">${escapeHtml(card.front)}</div>
+                        </div>
+                        <div class="card-side">
+                            <div class="card-label">Back</div>
+                            <div class="card-text">${escapeHtml(card.back)}</div>
+                        </div>
+                    </div>
+                `;
+                cardsGrid.appendChild(cardItem);
+            });
+
+            updateSelectedCount();
+            setupCardListeners();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function setupCardListeners() {
+            document.querySelectorAll('.card-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', (e) => {
+                    const index = parseInt(e.target.dataset.index);
+                    if (e.target.checked) {
+                        selectedCards.add(index);
+                    } else {
+                        selectedCards.delete(index);
+                    }
+                    updateSelectedCount();
+                });
+            });
+        }
+
+        function updateSelectedCount() {
+            selectedCount.textContent = `${selectedCards.size} of ${flashcards.length} selected`;
+        }
+
+        // Select/Deselect All
+        document.getElementById('select-all').addEventListener('click', () => {
+            document.querySelectorAll('.card-checkbox').forEach(cb => cb.checked = true);
+            selectedCards.clear();
+            flashcards.forEach((_, i) => selectedCards.add(i));
+            updateSelectedCount();
+        });
+
+        document.getElementById('deselect-all').addEventListener('click', () => {
+            document.querySelectorAll('.card-checkbox').forEach(cb => cb.checked = false);
+            selectedCards.clear();
+            updateSelectedCount();
+        });
+
+        // Get selected cards as array
+        function getSelectedCards() {
+            return Array.from(selectedCards).map(i => flashcards[i]);
+        }
+
+        // Download CSV
+        document.getElementById('download-csv').addEventListener('click', async () => {
+            const selected = getSelectedCards();
+            if (!selected.length) {
+                alert('Please select at least one card');
+                return;
+            }
+
+            try {
+                const response = await fetch('/export/csv', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({cards: selected})
+                });
+
+                if (!response.ok) throw new Error('Export failed');
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'flashcards.csv';
+                a.click();
+                window.URL.revokeObjectURL(url);
+            } catch (e) {
+                alert('Error exporting: ' + e.message);
+            }
+        });
+
+        // Load Anki Decks
+        async function loadDecks() {
+            try {
+                const response = await fetch('/anki/decks');
+                const data = await response.json();
+
+                if (data.error) {
+                    deckSelect.innerHTML = '<option value="">AnkiConnect not available</option>';
+                    return;
+                }
+
+                const decks = data.decks || [];
+                deckSelect.innerHTML = '<option value="">-- Select Deck --</option>' +
+                    '<option value="__new__">+ Create New Deck</option>' +
+                    decks.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+            } catch (e) {
+                deckSelect.innerHTML = '<option value="">AnkiConnect error</option>';
+            }
+        }
+
+        // Deck selection change
+        deckSelect.addEventListener('change', () => {
+            if (deckSelect.value === '__new__') {
+                newDeckInput.classList.add('visible');
+                deckNameInput.value = '';
+                deckNameInput.focus();
+            } else {
+                newDeckInput.classList.remove('visible');
+                deckNameInput.value = '';
+            }
+        });
+
+        // Add to Anki
+        document.getElementById('add-to-anki').addEventListener('click', async () => {
+            const selected = getSelectedCards();
+            if (!selected.length) {
+                alert('Please select at least one card');
+                return;
+            }
+
+            let deckName = deckSelect.value;
+            if (deckName === '__new__') {
+                deckName = deckNameInput.value.trim();
+            }
+
+            if (!deckName) {
+                alert('Please select or enter a deck name');
+                return;
+            }
+
+            ankiStatus.className = 'status-message';
+            ankiStatus.textContent = 'Adding cards to Anki...';
+            ankiStatus.style.display = 'block';
+
+            try {
+                const response = await fetch('/anki/add', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({cards: selected, deck: deckName})
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    ankiStatus.className = 'status-message error';
+                    ankiStatus.textContent = 'Error: ' + data.error;
+                } else {
+                    ankiStatus.className = 'status-message success';
+                    ankiStatus.textContent = `Successfully added ${data.count} cards to "${deckName}"!`;
+                }
+            } catch (e) {
+                ankiStatus.className = 'status-message error';
+                ankiStatus.textContent = 'Error: ' + e.message;
+            }
+        });
+
+        // Initialize
+        loadFlashcards();
+    </script>
+</body>
+</html>
