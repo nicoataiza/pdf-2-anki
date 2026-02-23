@@ -1,9 +1,31 @@
 import base64
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 import fitz
 import ollama
+
+load_dotenv()
+
+
+def _get_ollama_host() -> str:
+    return os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+
+def _get_model() -> str:
+    return os.getenv("OLLAMA_MODEL", "ministral-3b-instruct-64k:latest")
+
+
+def _get_num_ctx() -> int:
+    return int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+
+
+def _get_max_pages() -> int | None:
+    val = os.getenv("MAX_PAGES")
+    return int(val) if val else None
 
 
 @dataclass
@@ -18,7 +40,9 @@ def extract_text_from_pdf(
     if not Path(pdf_path).exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    client = ollama.Client(host="http://192.168.1.132:11435")
+    client = ollama.Client(host=_get_ollama_host())
+    model = _get_model()
+    num_ctx = _get_num_ctx()
 
     results = []
     doc = fitz.open(pdf_path)
@@ -34,10 +58,10 @@ def extract_text_from_pdf(
                 img_b64 = base64.b64encode(img_bytes).decode("utf-8")
 
                 response = client.generate(
-                    model="ministral-3b-instruct-64k:latest",
+                    model=model,
                     prompt="Extract all text from this image. Preserve the structure and formatting as much as possible.",
                     images=[img_b64],
-                    options={"num_ctx": 32768},
+                    options={"num_ctx": num_ctx},
                 )
 
                 results.append(

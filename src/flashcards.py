@@ -1,7 +1,24 @@
 import csv
+import os
 from dataclasses import dataclass, field
 
+from dotenv import load_dotenv
+
 import ollama
+
+load_dotenv()
+
+
+def _get_ollama_host() -> str:
+    return os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+
+def _get_model() -> str:
+    return os.getenv("OLLAMA_MODEL", "ministral-3b-instruct-64k:latest")
+
+
+def _get_num_ctx() -> int:
+    return int(os.getenv("OLLAMA_NUM_CTX", "32768"))
 
 
 BLANK_PHRASES = [
@@ -47,10 +64,14 @@ def is_valid_page(text: str, min_chars: int = 100) -> tuple[bool, str]:
 
 def generate_flashcards(
     pages: list,
-    ollama_host: str = "http://192.168.1.132:11435",
+    ollama_host: str | None = None,
     min_chars: int = 100,
 ) -> list[Flashcard]:
-    client = ollama.Client(host=ollama_host)
+    host = ollama_host or _get_ollama_host()
+    model = _get_model()
+    num_ctx = _get_num_ctx()
+
+    client = ollama.Client(host=host)
     flashcards = []
 
     for page in pages:
@@ -73,9 +94,9 @@ Text:
 Flashcards:"""
 
         response = client.generate(
-            model="ministral-3b-instruct-64k:latest",
+            model=model,
             prompt=prompt,
-            options={"num_ctx": 32768},
+            options={"num_ctx": num_ctx},
         )
 
         parsed = _parse_flashcards(response["response"])

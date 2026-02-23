@@ -4,3 +4,7 @@
 
 # LangGraph
 .langgraph_api/
+
+# Local environment
+.env
+.env.local

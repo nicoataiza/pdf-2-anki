@@ -2,6 +2,8 @@ import os
 import secrets
 import tempfile
 
+from dotenv import load_dotenv
+
 from flask import (
     Flask,
     flash,
@@ -14,15 +16,36 @@ from flask import (
 )
 
 from src.flashcards import (
-    Flashcard,
     dict_to_flashcards,
     flashcards_to_dict,
     generate_flashcards,
 )
-from src.ocr import extract_text_from_pdf
+from src.ocr import extract_text_from_pdf, _get_max_pages
+
+load_dotenv()
+
+
+def _get_secret_key() -> str:
+    key = os.getenv("FLASK_SECRET_KEY")
+    if key:
+        return key
+    return secrets.token_hex(32)
+
+
+def _get_flask_host() -> str:
+    return os.getenv("FLASK_HOST", "0.0.0.0")
+
+
+def _get_flask_port() -> int:
+    return int(os.getenv("FLASK_PORT", "5000"))
+
+
+def _get_ankiconnect_host() -> str:
+    return os.getenv("ANKICONNECT_HOST", "http://localhost:8765")
+
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(32)
+app.secret_key = _get_secret_key()
 
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = tempfile.gettempdir()
@@ -44,6 +67,17 @@ def index():
         flashcards=flashcards,
         processing=processing,
         pdf_filename=pdf_filename,
+    )
+
+
+@app.route("/config", methods=["GET"])
+def get_config():
+    return jsonify(
+        {
+            "host": _get_flask_host(),
+            "port": _get_flask_port(),
+            "max_pages": _get_max_pages(),
+        }
     )
 
 
@@ -71,7 +105,8 @@ def upload():
     file.save(temp_path)
 
     try:
-        pages = extract_text_from_pdf(temp_path)
+        max_pages = session.get("max_pages")
+        pages = extract_text_from_pdf(temp_path, max_pages)
         flashcards = generate_flashcards(pages)
         session["flashcards"] = flashcards_to_dict(flashcards)
         flash(f"Generated {len(flashcards)} flashcards", "success")
@@ -88,6 +123,19 @@ def upload():
 @app.route("/cards", methods=["GET"])
 def get_cards():
     return jsonify(session.get("flashcards", []))
+
+
+@app.route("/config/max_pages", methods=["POST"])
+def set_max_pages():
+    data = request.json
+    max_pages = data.get("max_pages")
+    if max_pages is not None:
+        try:
+            max_pages = int(max_pages) if max_pages != "" else None
+        except ValueError:
+            return jsonify({"error": "max_pages must be a number"}), 400
+    session["max_pages"] = max_pages
+    return jsonify({"success": True, "max_pages": max_pages})
 
 
 @app.route("/export/csv", methods=["POST"])
@@ -128,7 +176,7 @@ def get_decks():
         import requests
 
         response = requests.post(
-            "http://localhost:8765",
+            _get_ankiconnect_host(),
             json={"action": "deckNames", "version": 6},
             timeout=5,
         )
@@ -170,7 +218,7 @@ def add_to_anki():
         import requests
 
         response = requests.post(
-            "http://localhost:8765",
+            _get_ankiconnect_host(),
             json={"action": "addNotes", "version": 6, "params": {"notes": notes}},
             timeout=30,
         )
@@ -186,4 +234,4 @@ def add_to_anki():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host=_get_flask_host(), port=_get_flask_port())
