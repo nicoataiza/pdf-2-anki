@@ -18,7 +18,7 @@ def _get_model() -> str:
 
 
 def _get_num_ctx() -> int:
-    return int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+    return int(os.getenv("OLLAMA_NUM_CTX", "16384"))
 
 
 BLANK_PHRASES = [

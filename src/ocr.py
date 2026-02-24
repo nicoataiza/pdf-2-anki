@@ -20,12 +20,23 @@ def _get_model() -> str:
 
 
 def _get_num_ctx() -> int:
-    return int(os.getenv("OLLAMA_NUM_CTX", "32768"))
+    return int(os.getenv("OLLAMA_NUM_CTX", "16384"))
 
 
 def _get_max_pages() -> int | None:
     val = os.getenv("MAX_PAGES")
     return int(val) if val else None
+
+
+def _get_max_workers() -> int:
+    return int(os.getenv("MAX_WORKERS", "3"))
+
+
+def _get_image_scale() -> float:
+    return float(os.getenv("IMAGE_SCALE", "1.0"))
+
+
+OCR_PROMPT = "Extract all text from this image."
 
 
 @dataclass
@@ -34,49 +45,67 @@ class PageContent:
     text: str
 
 
+def _process_single_page(
+    page_num: int,
+    pdf_path: str,
+    model: str,
+) -> PageContent:
+    """Process a single page and return extracted text."""
+    client = ollama.Client(host=_get_ollama_host())
+    image_scale = _get_image_scale()
+
+    doc = fitz.open(pdf_path)
+    try:
+        page = doc[page_num]
+        pix = page.get_pixmap(matrix=fitz.Matrix(image_scale, image_scale))
+
+        try:
+            img_bytes = pix.tobytes("png")
+            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+
+            response = client.generate(
+                model=model,
+                prompt=OCR_PROMPT,
+                images=[img_b64],
+            )
+
+            return PageContent(
+                page_number=page_num + 1,
+                text=response["response"],
+            )
+        finally:
+            pix = None
+            img_bytes = None
+            img_b64 = None
+    finally:
+        doc.close()
+
+
 def extract_text_from_pdf(
-    pdf_path: str, max_pages: int | None = None
+    pdf_path: str, max_pages: int | None = None, progress_callback=None
 ) -> list[PageContent]:
     if not Path(pdf_path).exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    client = ollama.Client(host=_get_ollama_host())
-    model = _get_model()
-    num_ctx = _get_num_ctx()
-
-    results = []
     doc = fitz.open(pdf_path)
-    total_pages = min(max_pages if max_pages else len(doc), len(doc))
-
     try:
-        for page_num in range(total_pages):
-            page = doc[page_num]
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-
-            try:
-                img_bytes = pix.tobytes("png")
-                img_b64 = base64.b64encode(img_bytes).decode("utf-8")
-
-                response = client.generate(
-                    model=model,
-                    prompt="Extract all text from this image. Preserve the structure and formatting as much as possible.",
-                    images=[img_b64],
-                    options={"num_ctx": num_ctx},
-                )
-
-                results.append(
-                    PageContent(
-                        page_number=page_num + 1,
-                        text=response["response"],
-                    )
-                )
-            finally:
-                pix = None
-                img_bytes = None
-                img_b64 = None
+        total_pages = min(max_pages if max_pages else len(doc), len(doc))
     finally:
         doc.close()
 
+    model = _get_model()
+
+    results = []
+    for page_num in range(total_pages):
+        try:
+            result = _process_single_page(page_num, pdf_path, model)
+            results.append(result)
+            if progress_callback:
+                progress_callback(len(results), total_pages)
+        except Exception as e:
+            print(f"Error processing page {page_num + 1}: {e}")
+
+    results.sort(key=lambda x: x.page_number)
     return results
 
 

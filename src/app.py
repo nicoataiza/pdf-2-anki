@@ -1,6 +1,7 @@
 import os
 import secrets
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 
@@ -21,6 +22,7 @@ from src.flashcards import (
     generate_flashcards,
 )
 from src.ocr import extract_text_from_pdf, _get_max_pages
+from src.anki import get_anki_service
 
 load_dotenv()
 
@@ -40,17 +42,18 @@ def _get_flask_port() -> int:
     return int(os.getenv("FLASK_PORT", "5000"))
 
 
-def _get_ankiconnect_host() -> str:
-    return os.getenv("ANKICONNECT_HOST", "http://localhost:8765")
-
-
 app = Flask(__name__)
 app.secret_key = _get_secret_key()
 
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = tempfile.gettempdir()
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
 
 ALLOWED_EXTENSIONS = {"pdf"}
+
+progress_store = {}
+flashcard_store = {}
 
 
 def allowed_file(filename):
@@ -59,7 +62,12 @@ def allowed_file(filename):
 
 @app.route("/")
 def index():
-    flashcards = session.get("flashcards", [])
+    session_id = session.get("_id", "")
+    if not session_id:
+        session_id = secrets.token_hex(8)
+        session["_id"] = session_id
+        session.modified = True
+    flashcards = flashcard_store.get(session_id, [])
     processing = session.get("processing", False)
     pdf_filename = session.get("pdf_filename", "")
     return render_template(
@@ -67,6 +75,7 @@ def index():
         flashcards=flashcards,
         processing=processing,
         pdf_filename=pdf_filename,
+        session_id=session_id,
     )
 
 
@@ -79,6 +88,48 @@ def get_config():
             "max_pages": _get_max_pages(),
         }
     )
+
+
+def process_pdf_background(session_id, temp_path, max_pages):
+    def ocr_progress(current, total):
+        progress_store[session_id] = {
+            "stage": "ocr",
+            "current": current,
+            "total": total,
+            "percent": int((current / total) * 100) if total > 0 else 0,
+        }
+
+    def flashcard_progress(current, total):
+        progress_store[session_id] = {
+            "stage": "flashcards",
+            "current": current,
+            "total": total,
+            "percent": int((current / total) * 100) if total > 0 else 0,
+        }
+
+    try:
+        pages = extract_text_from_pdf(
+            temp_path, max_pages, progress_callback=ocr_progress
+        )
+
+        total_pages = len(pages)
+        for i in range(total_pages):
+            flashcard_progress(i + 1, total_pages)
+
+        flashcards = generate_flashcards(pages)
+
+        progress_store[session_id] = {
+            "stage": "complete",
+            "current": total_pages,
+            "total": total_pages,
+            "percent": 100,
+            "flashcards": flashcards_to_dict(flashcards),
+        }
+    except Exception as e:
+        progress_store[session_id] = {
+            "stage": "error",
+            "error": str(e),
+        }
 
 
 @app.route("/upload", methods=["POST"])
@@ -96,33 +147,54 @@ def upload():
         flash("Only PDF files are allowed", "error")
         return redirect("/")
 
+    session_id = session.get("_id", secrets.token_hex(8))
+    session["_id"] = session_id
     session["processing"] = True
     session["pdf_filename"] = file.filename
-    session["flashcards"] = []
+    flashcard_store[session_id] = []
     session.modified = True
 
     temp_path = os.path.join(app.config["UPLOAD_FOLDER"], file.filename)
     file.save(temp_path)
 
-    try:
-        max_pages = session.get("max_pages")
-        pages = extract_text_from_pdf(temp_path, max_pages)
-        flashcards = generate_flashcards(pages)
-        session["flashcards"] = flashcards_to_dict(flashcards)
-        flash(f"Generated {len(flashcards)} flashcards", "success")
-    except Exception as e:
-        flash(f"Error processing PDF: {str(e)}", "error")
-    finally:
-        os.remove(temp_path)
-        session["processing"] = False
-        session.modified = True
+    max_pages = session.get("max_pages")
+
+    progress_store[session_id] = {
+        "stage": "starting",
+        "current": 0,
+        "total": 0,
+        "percent": 0,
+    }
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        executor.submit(process_pdf_background, session_id, temp_path, max_pages)
 
     return redirect("/")
 
 
+@app.route("/progress", methods=["GET"])
+def get_progress():
+    session_id = session.get("_id")
+    if not session_id or session_id not in progress_store:
+        return jsonify({"stage": "idle"})
+
+    progress = progress_store[session_id].copy()
+
+    if progress.get("stage") == "complete":
+        flashcards = progress.get("flashcards", [])
+        flashcard_store[session_id] = flashcards
+        session["processing"] = False
+        session.modified = True
+        flash(f"Generated {len(flashcards)} flashcards", "success")
+        del progress_store[session_id]
+
+    return jsonify(progress)
+
+
 @app.route("/cards", methods=["GET"])
 def get_cards():
-    return jsonify(session.get("flashcards", []))
+    session_id = session.get("_id", "")
+    return jsonify(flashcard_store.get(session_id, []))
 
 
 @app.route("/config/max_pages", methods=["POST"])
@@ -173,17 +245,9 @@ def export_csv():
 @app.route("/anki/decks", methods=["GET"])
 def get_decks():
     try:
-        import requests
-
-        response = requests.post(
-            _get_ankiconnect_host(),
-            json={"action": "deckNames", "version": 6},
-            timeout=5,
-        )
-        data = response.json()
-        if data.get("error"):
-            return jsonify({"error": data["error"]}), 400
-        return jsonify({"decks": data.get("result", [])})
+        anki = get_anki_service()
+        decks = anki.get_decks()
+        return jsonify({"decks": decks})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -202,36 +266,15 @@ def add_to_anki():
 
     flashcards = dict_to_flashcards(cards)
 
-    notes = []
-    for card in flashcards:
-        notes.append(
-            {
-                "deckName": deck_name,
-                "modelName": "Basic",
-                "fields": {"Front": card.front, "Back": card.back},
-                "options": {"allowDuplicate": False},
-                "tags": card.tags,
-            }
-        )
-
     try:
-        import requests
-
-        response = requests.post(
-            _get_ankiconnect_host(),
-            json={"action": "addNotes", "version": 6, "params": {"notes": notes}},
-            timeout=30,
-        )
-        result = response.json()
-
-        if result.get("error"):
-            return jsonify({"error": result["error"]}), 400
-
-        count = len(result.get("result", []))
+        anki = get_anki_service()
+        count = anki.add_notes(deck_name, flashcards)
         return jsonify({"success": True, "count": count})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host=_get_flask_host(), port=_get_flask_port())
+    app.run(
+        debug=True, host=_get_flask_host(), port=_get_flask_port(), use_reloader=False
+    )

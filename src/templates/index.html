@@ -126,6 +126,36 @@
             100% { transform: rotate(360deg); }
         }
 
+        /* Progress Bar */
+        .progress-container {
+            margin-top: 20px;
+            width: 100%;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .progress-bar {
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+
+        .progress-text {
+            margin-top: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+
         /* Flashcards Section */
         .cards-section {
             display: none;
@@ -410,6 +440,12 @@
             <div class="loading" id="loading">
                 <div class="spinner"></div>
                 <p>Processing PDF... This may take a while.</p>
+                <div class="progress-container" id="progress-container" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <p class="progress-text" id="progress-text">Initializing...</p>
+                </div>
             </div>
         </div>
 
@@ -514,7 +550,59 @@
             uploadBtn.textContent = 'Processing...';
             loading.style.display = 'block';
             uploadArea.style.display = 'none';
+            document.getElementById('progress-container').style.display = 'block';
+            startProgressPolling();
         });
+
+        let progressInterval;
+        function startProgressPolling() {
+            if (progressInterval) clearInterval(progressInterval);
+            
+            progressInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/progress');
+                    const progress = await response.json();
+                    
+                    if (progress.stage === 'idle' || progress.stage === 'starting') {
+                        document.getElementById('progress-text').textContent = 'Initializing...';
+                    } else if (progress.stage === 'ocr') {
+                        document.getElementById('progress-fill').style.width = progress.percent + '%';
+                        document.getElementById('progress-text').textContent = 
+                            `Extracting text (OCR): Page ${progress.current} of ${progress.total}`;
+                    } else if (progress.stage === 'flashcards') {
+                        document.getElementById('progress-fill').style.width = progress.percent + '%';
+                        document.getElementById('progress-text').textContent = 
+                            `Generating flashcards: ${progress.current} of ${progress.total}`;
+                    } else if (progress.stage === 'complete') {
+                        document.getElementById('progress-fill').style.width = '100%';
+                        document.getElementById('progress-text').textContent = 'Complete!';
+                        clearInterval(progressInterval);
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } else if (progress.stage === 'error') {
+                        document.getElementById('progress-text').textContent = 'Error: ' + progress.error;
+                        clearInterval(progressInterval);
+                    }
+                } catch (e) {
+                    console.error('Progress polling error:', e);
+                }
+            }, 1000);
+        }
+
+        // Check if processing on page load
+        async function checkProcessing() {
+            try {
+                const response = await fetch('/progress');
+                const progress = await response.json();
+                if (progress.stage && progress.stage !== 'idle' && progress.stage !== 'complete' && progress.stage !== 'error') {
+                    loading.style.display = 'block';
+                    uploadArea.style.display = 'none';
+                    document.getElementById('progress-container').style.display = 'block';
+                    startProgressPolling();
+                }
+            } catch (e) {}
+        }
 
         // Load flashcards on page load
         async function loadFlashcards() {
@@ -712,6 +800,7 @@
 
         // Initialize
         loadFlashcards();
+        checkProcessing();
     </script>
 </body>
 </html>
